@@ -10,16 +10,20 @@
 ```
 # How to compile
 
+
+##### A makefile is provided in order to the compile the program, this is done by using the "make". Otherwise the program can also be compiled using the command below.
 ```
-    A make file is provided in order to compile the program, this is done by using the "make" command. Otherwise the program can also be compiled using gcc memsim.c linkedlist.c
+    gcc memsim.c linkedlist.c
 ```
 
 # How to run
 
-```
-    To the run the FIFO and LRU algorithms the format is ./memsim <tracefile> <number of frames> <algorithm> <quiet|debug>
 
-    Otherwise for the VMS algorithm the format is similar although with the addition of a percentage
+##### To the run the FIFO and LRU algorithms the format is Otherwise for the VMS algorithm the format is similar although with the addition of a percentage.
+
+```
+    ./memsim <tracefile> <number of frames> <algorithm> <quiet|debug>
+
     ./memsim <tracefile> <number of frames> <algorithm> <percentage> <quiet|debug>
 
     tracefile: name of tracefile
