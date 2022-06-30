@@ -31,5 +31,6 @@
     algorithm: page replacement algorithm to be used
     quiet: displays the number of reads/writes
     debug: number of faults and hits of pages
+    percentage: between 1-100 inclusive
 
 ```
