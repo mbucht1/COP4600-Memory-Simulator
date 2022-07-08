@@ -8,12 +8,13 @@ int diskread = 0;
 int diskwrite = 0;
 int pagefault = 0;
 int pagehit = 0;
+int accessTime = 0;
 
 void fifo(List* pageTable, Node *entry, int nframes, char *displayMode){
     if(!isInMemory(pageTable, entry)){
         pagefault++;
         diskread++;
-        insertNodeEnd(pageTable, entry, entry->virtualPageNumber, entry->rw, entry->accessTime, entry->dirty); 
+        insertNodeEnd(pageTable, entry, entry->virtualPageNumber, entry->dirty, entry->rw, entry->accessTime); 
         if(pageTable->size > nframes){
             if(pageTable->head->dirty == 1) diskwrite++;
             popFront(pageTable);
@@ -33,21 +34,31 @@ void lru(List* pageTable, Node *entry, int nframes, char *displayMode){
     if(!isInMemory(pageTable, entry)){
         pagefault++;
         diskread++;
-        insertNodeEnd(pageTable, entry, entry->virtualPageNumber, entry->rw, entry->accessTime, entry->dirty); 
+        insertNodeEnd(pageTable, entry, entry->virtualPageNumber, entry->dirty, entry->rw, entry->accessTime); 
         if(pageTable->size > nframes){
+            int min = -1;
             Node *leastUsed = pageTable->head;
             for(Node *temp = pageTable->head; temp != NULL; temp = temp->next){
-                if(temp->accessTime < leastUsed->accessTime) leastUsed = temp; 
+                if(temp->accessTime > min){
+                    leastUsed = temp;
+                    min = temp->accessTime; 
+                }
             }
             if(leastUsed->dirty == 1) diskwrite++;
             removeNode(pageTable, leastUsed, nframes);
+            for(Node *t = pageTable->head; t != NULL; t = t->next){
+                t->accessTime++;
+            }
         }
     }
     else{
         pagehit++;
         Node *temp = nodeInMemory(pageTable, entry);
         if(entry->dirty == 1) temp->dirty = 1;
-        temp->accessTime = entry->accessTime;
+        for(Node *t = pageTable->head; t != NULL; t = t->next){
+            if(t->virtualPageNumber == temp->virtualPageNumber) t->accessTime = 0;
+            else t->accessTime++;
+        }
     }
 }
 
@@ -61,57 +72,67 @@ void lru(List* pageTable, Node *entry, int nframes, char *displayMode){
 void vms(List *pageTable, List *secondBuffer, Node *entry, int nframes, int percentage, char *displayMode){
     int secondaryFrames = nframes * (percentage * 0.01);
     int primaryFrames = nframes - secondaryFrames;
-    if(percentage == 100) lru(pageTable, entry, nframes, displayMode);
-    else if(percentage == 0) fifo(pageTable, entry, nframes, displayMode);
+
+    if(primaryFrames == 0) lru(pageTable, entry, nframes, displayMode);
+    else if(secondaryFrames== 0) fifo(pageTable, entry, nframes, displayMode);
     
-    if(isInMemory(pageTable, entry) || isInMemory(secondBuffer, entry)){
-        pagehit++;          
+
+
+    if(!isInMemory(pageTable, entry) && !isInMemory(secondBuffer, entry)){
+        pagefault++;
+        diskread++;
+        if(pageTable->size == primaryFrames){
+            if(secondBuffer->size == secondaryFrames){
+                int min = -1;
+                Node *leastUsed = NULL;
+                for(Node *temp = secondBuffer->head; temp != NULL; temp = temp->next){
+                    if(temp->accessTime > min){
+                        leastUsed = temp;
+                        min = temp->accessTime;
+                    }
+                }
+                if(leastUsed->dirty == 1) diskwrite++;
+                removeNode(secondBuffer, leastUsed, nframes);
+                for(Node *t = secondBuffer->head; t != NULL; t = t->next){
+                    t->accessTime = 0;
+                }
+                Node *oldNode = createNode(pageTable->head->virtualPageNumber, pageTable->head->dirty, pageTable->head->rw, 0);
+                insertNodeEnd(secondBuffer, oldNode, oldNode->virtualPageNumber, oldNode->dirty, oldNode->rw, oldNode->accessTime);
+                insertNodeEnd(pageTable, entry, entry->virtualPageNumber, entry->dirty, entry->rw, entry->accessTime);
+                popFront(pageTable);
+            }
+            else{
+                insertNodeEnd(pageTable, entry, entry->virtualPageNumber, entry->dirty, entry->rw, entry->accessTime);
+                for(Node *t = secondBuffer->head; t != NULL; t = t->next){
+                    t->accessTime = 0;
+                }
+                Node *oldNode = createNode(pageTable->head->virtualPageNumber, pageTable->head->dirty, pageTable->head->rw, 0);
+                insertNodeEnd(secondBuffer, oldNode, oldNode->virtualPageNumber, oldNode->dirty, oldNode->rw, oldNode->accessTime);
+                popFront(pageTable);
+            }
+        }
+        else{
+            insertNodeEnd(pageTable, entry, entry->virtualPageNumber, entry->dirty, entry->rw, entry->accessTime);
+        }
+    }
+    else if(isInMemory(pageTable, entry)){
+        pagehit++;
         Node *temp = nodeInMemory(pageTable, entry);
-        if(temp == NULL) temp = nodeInMemory(secondBuffer, entry);
         if(entry->dirty == 1) temp->dirty = 1;
     }
-    else{
-        
+    else if(isInMemory(secondBuffer, entry)){
+        pagehit++;
+        Node *temp = nodeInMemory(secondBuffer, entry);
+        if(temp->dirty == 1) entry->dirty = 1;
+        insertNodeEnd(pageTable, entry, entry->virtualPageNumber, entry->dirty, entry->rw, entry->accessTime);
+        removeNode(secondBuffer, temp, nframes);
+        for(Node *t = secondBuffer->head; t != NULL; t = t->next){
+            t->accessTime = 0;
+        }
+        Node *oldNode = createNode(pageTable->head->virtualPageNumber, pageTable->head->dirty, pageTable->head->rw, 0);
+        insertNodeEnd(secondBuffer, oldNode, oldNode->virtualPageNumber, oldNode->dirty, oldNode->rw, oldNode->accessTime);
+        popFront(pageTable);
     }
-
-
-
-    // || !isInMemory(pageTable, entry)
-    // if(!isInMemory(pageTable, entry) && !isInMemory(secondBuffer, entry)){
-    //     pagefault++;
-    //     diskread++;
-    //     if(pageTable->size == primaryFrames){
-    //         Node *oldNode = pageTable->head;
-    //         oldNode = createNode(oldNode->virtualPageNumber, oldNode->dirty, oldNode->rw, oldNode->accessTime);
-    //         insertNodeEnd(secondBuffer, oldNode, oldNode->virtualPageNumber, oldNode->rw,  oldNode->accessTime,  oldNode->dirty); 
-    //         popFront(pageTable);
-    //         if(secondBuffer->size == secondaryFrames){
-    //             Node *leastUsed = secondBuffer->head;
-    //             for(Node *temp = secondBuffer->head; temp != NULL; temp = temp->next){
-    //                 if(temp->accessTime < leastUsed->accessTime) leastUsed = temp; 
-    //             }
-    //             if(leastUsed->dirty == 1) diskwrite++;
-    //             removeNode(secondBuffer, leastUsed, nframes);
-    //         }
-    //     }
-    //     else{
-    //         insertNodeEnd(pageTable, entry, entry->virtualPageNumber, entry->rw, entry->accessTime, entry->dirty);
-    //     }
-    // }
-    // else if(!isInMemory(pageTable, entry) && isInMemory(secondBuffer, entry)){
-    //     pagehit++;
-    //     Node *temp = nodeInMemory(secondBuffer, entry);
-    //     Node *refNode = createNode(temp->virtualPageNumber, temp->dirty, temp->rw, temp->accessTime);
-    //     if(entry->dirty == 1) refNode->dirty = 1;
-    //     insertNodeEnd(pageTable, refNode, refNode->virtualPageNumber, refNode->rw,  refNode->accessTime,  refNode->dirty); 
-    //     removeNode(secondBuffer, temp, nframes);
-    // }
-    // else if(isInMemory(pageTable, entry) || isInMemory(secondBuffer, entry)){
-    //     pagehit++;          
-    //     Node *temp = nodeInMemory(pageTable, entry);
-    //     if(temp == NULL) temp = nodeInMemory(secondBuffer, entry);
-    //     if(entry->dirty == 1) temp->dirty = 1;
-    // }
 }
 
 
@@ -178,22 +199,19 @@ int main(int argc, char *argv[]){
     unsigned addr;
     char rw;
     int events = 0;
-    int accessTime = 0;
     unsigned pageSize = 4096;
     int dirty = 0;
 
    
     List *pageTable = initList();
     List *secondBuffer = initList();
-    Node *entry = NULL;
     while(fscanf(file, "%x %c", &addr, &rw) != EOF){
-        // if(events == 100) break;
         ++events;
         ++accessTime;
         unsigned pageNumber = addr / pageSize;
         if(rw == 'W') dirty = 1;
         else dirty = 0;
-        entry = createNode(pageNumber, dirty, rw, accessTime);
+        Node *entry = createNode(pageNumber, dirty, rw, 0);
         if(strcmp(pageAlgo,"fifo") == 0){
             fifo(pageTable, entry, nframes, displayMode);
         }
